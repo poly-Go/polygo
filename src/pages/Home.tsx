@@ -22,6 +22,7 @@ export default function Home() {
   
   // ✅ Prevent multiple refresh calls
   const refreshInProgress = useRef(false);
+  const initialLoadDone = useRef(false);
 
   // ====== Balances ======
   const { data: plpRaw, refetch: refetchPlpBalance, isLoading: plpLoading } = useReadContract({
@@ -94,7 +95,7 @@ export default function Home() {
   const pendingUSDT = pendingSettlement ? formatUnits(pendingSettlement as bigint, USDT_DECIMALS) : '0.00';
   const isRegistered = userBasic !== undefined && userBasic !== null;
 
-  // ====== Handlers - ✅ FIXED with useCallback ======
+  // ====== Handlers ======
   const handleRefresh = useCallback(async () => {
     // ✅ Prevent concurrent refresh calls
     if (refreshInProgress.current) return;
@@ -129,7 +130,7 @@ export default function Home() {
     });
   };
 
-  // ====== Effects - ✅ FIXED with proper dependencies ======
+  // ====== Effects ======
   useEffect(() => {
     if (registerSuccess && registering) {
       setRegistering(false);
@@ -146,12 +147,19 @@ export default function Home() {
     }
   }, [isRegisterError, registering, registerError, toast]);
 
-  // ✅ FIXED: Auto-refresh only when address changes, not on every render
+  // ✅ FIXED: Only run once on mount and when address changes
   useEffect(() => {
-    if (address) {
+    if (address && !initialLoadDone.current) {
+      initialLoadDone.current = true;
       handleRefresh();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]); // Only address dependency
+
+  // ✅ FIXED: Reset initialLoadDone when address disconnects
+  useEffect(() => {
+    if (!address) {
+      initialLoadDone.current = false;
+    }
   }, [address]);
 
   // ====== Network Check ======
