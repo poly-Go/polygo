@@ -1,6 +1,10 @@
 import { useAccount, useReadContract, usePublicClient } from 'wagmi';
+// ✅ FIX: Correct import path - from '../../constants' (go up two levels)
 import { CONTRACT_ADDRESS, PLP_ABI } from '../../constants';
 import { useState, useEffect } from 'react';
+// ✅ Remove unused imports
+// import { ClaimReferral } from '../components/Referral/ClaimReferral';
+// import { ERC20_ABI } from '../abi/erc20Abi';
 import { useToast } from '../../hooks/useToast';
 
 interface TeamMember {
@@ -56,27 +60,8 @@ export const TeamTree = ({ address }: TeamTreeProps) => {
     }
   };
 
-  // ====== Check if user is active ======
-  const checkUserActive = async (addr: `0x${string}`): Promise<boolean> => {
-    try {
-      if (!publicClient) return false;
-      
-      const result = await publicClient.readContract({
-        address: CONTRACT_ADDRESS as `0x${string}`,
-        abi: PLP_ABI,
-        functionName: 'isActive',
-        args: [addr],
-      }) as boolean;
-      
-      return result || false;
-    } catch (error) {
-      console.error(`Error checking active status for ${addr}:`, error);
-      return false;
-    }
-  };
-
   // ====== Fetch referrals of a specific address (for levels 2, 3, 4) ======
-  const fetchReferralsOf = async (addr: `0x${string}`): Promise<{ address: `0x${string}`, isActive: boolean }[]> => {
+  const fetchReferralsOf = async (addr: `0x${string}`): Promise<`0x${string}`[]> => {
     try {
       if (!publicClient) return [];
       
@@ -87,15 +72,7 @@ export const TeamTree = ({ address }: TeamTreeProps) => {
         args: [addr],
       }) as `0x${string}`[];
       
-      // Check active status for each referral
-      const membersWithStatus = await Promise.all(
-        result.map(async (ref) => ({
-          address: ref,
-          isActive: await checkUserActive(ref),
-        }))
-      );
-      
-      return membersWithStatus;
+      return result || [];
     } catch (error) {
       console.error(`Error fetching referrals for ${addr}:`, error);
       return [];
@@ -110,17 +87,16 @@ export const TeamTree = ({ address }: TeamTreeProps) => {
       setLoading(true);
       const allMembers: TeamMember[] = [];
       
-      // Level 1: Direct referrals with active status
+      // Level 1: Direct referrals
       const level1 = (directReferrals as `0x${string}`[]) || [];
       
-      // Check active status for level 1 members
+      // Add level 1 members
       for (const member of level1) {
-        const isActive = await checkUserActive(member);
         allMembers.push({
           address: member,
           level: 1,
           directCount: 0,
-          isActive: isActive,
+          isActive: true,
         });
       }
       
@@ -128,10 +104,10 @@ export const TeamTree = ({ address }: TeamTreeProps) => {
       const level2Promises = level1.map(async (member) => {
         const refs = await fetchReferralsOf(member);
         return refs.map(ref => ({
-          address: ref.address,
+          address: ref,
           level: 2,
           directCount: 0,
-          isActive: ref.isActive,
+          isActive: true,
         }));
       });
       
@@ -147,10 +123,10 @@ export const TeamTree = ({ address }: TeamTreeProps) => {
       const level3Promises = level2.map(async (member) => {
         const refs = await fetchReferralsOf(member.address);
         return refs.map(ref => ({
-          address: ref.address,
+          address: ref,
           level: 3,
           directCount: 0,
-          isActive: ref.isActive,
+          isActive: true,
         }));
       });
       
@@ -166,10 +142,10 @@ export const TeamTree = ({ address }: TeamTreeProps) => {
       const level4Promises = level3.map(async (member) => {
         const refs = await fetchReferralsOf(member.address);
         return refs.map(ref => ({
-          address: ref.address,
+          address: ref,
           level: 4,
           directCount: 0,
-          isActive: ref.isActive,
+          isActive: true,
         }));
       });
       

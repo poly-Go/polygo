@@ -1,7 +1,7 @@
 import { useAccount, useReadContract, usePublicClient } from 'wagmi';
 import { CONTRACT_ADDRESS, PLP_ABI, USDT_DECIMALS, USDT_ADDRESS, PLP_ADDRESS } from '../constants';
 import { ClaimReferral } from '../components/Referral/ClaimReferral';
-import { TeamTree } from '../components/Referral/TeamTree';
+// ✅ REMOVED: import { TeamTree } from '../components/Referral/TeamTree';
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { formatUnits, isAddress, zeroAddress } from 'viem';
 import { ERC20_ABI } from '../abi/erc20Abi';
@@ -33,7 +33,8 @@ export default function Referral() {
   const [isTeamTreeVisible, setIsTeamTreeVisible] = useState(false);
   
   const isMounted = useRef(true);
-  const refreshTimeout = useRef<NodeJS.Timeout | null>(null);
+  // ✅ FIX: Use ReturnType<typeof setTimeout> instead of NodeJS.Timeout
+  const refreshTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     isMounted.current = true;
@@ -45,7 +46,7 @@ export default function Referral() {
     };
   }, []);
 
-  // ✅ FIX 2: No useMemo needed
+  // ✅ No useMemo needed - direct values
   const stableAddress = address;
   const isStablyConnected = isConnected && !!address;
 
@@ -57,7 +58,6 @@ export default function Referral() {
     args: [stableAddress as `0x${string}`],
     query: { 
       enabled: isStablyConnected,
-      // ✅ FIX 3: Remove staleTime - QueryClient default handles it
     },
   });
 
@@ -94,7 +94,7 @@ export default function Referral() {
     },
   });
 
-  // ====== FIX 1: Batch check active status ======
+  // ====== Batch check active status ======
   const checkUserActiveBatch = useCallback(async (addresses: `0x${string}`[]): Promise<Record<string, boolean>> => {
     if (!publicClient || addresses.length === 0) return {};
     
@@ -133,7 +133,7 @@ export default function Referral() {
       if (Array.isArray(referralsData) && referralsData.length >= 2) {
         const list = referralsData[0] as `0x${string}`[];
         
-        // ✅ FIX 1: Batch check active status for all referrals at once
+        // ✅ Batch check active status for all referrals at once
         const statusMap = await checkUserActiveBatch(list);
         
         const referralsWithStatus = list.map((addr) => ({
@@ -164,7 +164,6 @@ export default function Referral() {
     query: { 
       enabled: !!lookupAddress && isAddress(lookupAddress),
       retry: false,
-      // ✅ FIX 5: No need to refetch manually
     },
   });
 
@@ -193,7 +192,6 @@ export default function Referral() {
   const handleSearch = () => {
     if (isAddress(searchAddress)) {
       setLookupAddress(searchAddress as `0x${string}`);
-      // ✅ FIX 5: No manual refetch needed
     } else {
       toast.error('Invalid Address', 'Please enter a valid Ethereum address.');
     }
@@ -253,7 +251,7 @@ export default function Referral() {
     }
   };
 
-  // ====== FIX 4: Debounced refresh with toast throttling ======
+  // ====== Debounced refresh with toast throttling ======
   const handleRefresh = useCallback(async () => {
     if (!isMounted.current) return;
     
@@ -306,7 +304,7 @@ export default function Referral() {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
-  // ✅ FIX 1b: Loading state for wallet connection
+  // ✅ Loading state for wallet connection
   if (!isStablyConnected) {
     return (
       <div className="card p-8 text-center">
@@ -694,7 +692,7 @@ export default function Referral() {
               <p className="text-slate-500 text-sm mt-2">Loading team tree...</p>
             </div>
           }>
-            <TeamTreeLazy address={stableAddress} />
+            <TeamTreeLazy address={stableAddress as `0x${string}`} />
           </Suspense>
         )}
       </div>

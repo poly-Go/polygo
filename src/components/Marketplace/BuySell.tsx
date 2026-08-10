@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits, maxUint256, formatUnits } from 'viem';
-import { CONTRACT_ADDRESS, PLP_ABI, USDT_DECIMALS, PLP_DECIMALS, PLP_ADDRESS, CHAIN_ID } from '../../constants';
+import { CONTRACT_ADDRESS, PLP_ABI, USDT_DECIMALS, PLP_DECIMALS, PLP_ADDRESS, CHAIN_ID, USDT_ADDRESS } from '../../constants';
 import { ERC20_ABI } from '../../abi/erc20Abi';
 import { useToast } from '../../hooks/useToast';
 import { validateBuy, validateSell, TRADE_LIMITS } from '../../utils/validation';
@@ -128,9 +128,8 @@ const InfoRow = ({ icon, text, highlight }: any) => (
 // MAIN BUY SELL COMPONENT
 // ═══════════════════════════════════════════════════════
 export default function BuySell() {
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
   const toast = useToast();
-  const { refreshAfterTrade } = useRefresh();
   const [buyAmount, setBuyAmount] = useState('');
   const [sellAmount, setSellAmount] = useState('');
   const [approving, setApproving] = useState(false);
@@ -145,14 +144,24 @@ export default function BuySell() {
     functionName: 'USDT',
   });
 
-// ---------- Get PLP balance ----------
-  const { data: plpBalance } = useReadContract({
+  // ---------- Get PLP balance ----------
+  const { data: plpBalance, refetch: refetchPlpBalance } = useReadContract({
     chainId: CHAIN_ID,
     address: PLP_ADDRESS as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    query: { enabled: !!address && isConnected },
+  });
+
+  // ---------- Get USDT balance (only refetch, no data needed) ----------
+  const { refetch: refetchUsdtBalance } = useReadContract({
+    chainId: CHAIN_ID,
+    address: USDT_ADDRESS as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [address as `0x${string}`],
+    query: { enabled: !!address && isConnected },
   });
 
   // ---------- Read on-chain limits (with constant fallback) ----------
@@ -194,7 +203,7 @@ export default function BuySell() {
     abi: ERC20_ABI,
     functionName: 'allowance',
     args: [address as `0x${string}`, CONTRACT_ADDRESS as `0x${string}`],
-    query: { enabled: !!address && !!usdtAddress },
+    query: { enabled: !!address && !!usdtAddress && isConnected },
   });
 
   const { data: plpAllowance, refetch: refetchPlpAllowance } = useReadContract({
@@ -203,7 +212,7 @@ export default function BuySell() {
     abi: ERC20_ABI,
     functionName: 'allowance',
     args: [address as `0x${string}`, CONTRACT_ADDRESS as `0x${string}`],
-    query: { enabled: !!address },
+    query: { enabled: !!address && isConnected },
   });
 
   // ---------- Write hooks ----------
@@ -225,7 +234,6 @@ export default function BuySell() {
     ? (parseFloat(buyAmount) * 1000).toLocaleString()
     : '0';
 
-// ✅ FIX 1: Bonus as number (not string with commas)
   const bonusPlp = buyAmount && parseFloat(buyAmount) >= 10
     ? Math.floor(parseFloat(buyAmount) * 1000 * 0.01)
     : 0;
@@ -237,7 +245,7 @@ export default function BuySell() {
   const sellError = sellValidation.firstError;
 
   // ---------- Handlers ----------
-const handleBuy = async () => {
+  const handleBuy = async () => {
     if (!address || !usdtAddress || !buyAmount) return;
     if (!buyValidation.isValid) {
       toast.error('Invalid Amount', buyValidation.firstError || 'Please enter a valid buy amount');
@@ -276,7 +284,7 @@ const handleBuy = async () => {
     }
   };
 
-const handleSell = async () => {
+  const handleSell = async () => {
     if (!address || !sellAmount) return;
     if (!sellValidation.isValid) {
       toast.error('Invalid Amount', sellValidation.firstError || 'Please enter a valid sell amount');
@@ -323,22 +331,42 @@ const handleSell = async () => {
     }
   }, [approveSuccess, refetchUsdtAllowance, refetchPlpAllowance]);
 
+  // ✅ Buy Success - Targetted Refetch (NO useRefresh)
   useEffect(() => {
     if (buySuccess && address) {
-      // ✅ FIX 3: Pass bonus as number to toast
+      const refreshAfterBuy = async () => {
+        await Promise.all([
+          refetchPlpBalance(),
+          refetchUsdtBalance(),
+          refetchUsdtAllowance(),
+          refetchPlpAllowance(),
+        ]);
+      };
+      refreshAfterBuy();
+      
       toast.buySuccess(buyAmount, 'PLP', bonusPlp);
       setBuyAmount('');
-      refreshAfterTrade(address);
     }
-  }, [buySuccess, buyAmount, address, toast, refreshAfterTrade, bonusPlp]);
+  }, [buySuccess, buyAmount, address, toast, bonusPlp, 
+      refetchPlpBalance, refetchUsdtBalance, refetchUsdtAllowance, refetchPlpAllowance]);
 
+  // ✅ Sell Success - Targetted Refetch (NO useRefresh)
   useEffect(() => {
     if (sellSuccess && address) {
+      const refreshAfterSell = async () => {
+        await Promise.all([
+          refetchPlpBalance(),
+          refetchUsdtBalance(),
+          refetchPlpAllowance(),
+        ]);
+      };
+      refreshAfterSell();
+      
       toast.sellSuccess(sellAmount);
       setSellAmount('');
-      refreshAfterTrade(address);
     }
-  }, [sellSuccess, sellAmount, address, toast, refreshAfterTrade]);
+  }, [sellSuccess, sellAmount, address, toast, 
+      refetchPlpBalance, refetchUsdtBalance, refetchPlpAllowance]);
 
   // ---------- Quick amount ----------
   const setBuyAmountQuick = (val: number) => setBuyAmount(val.toString());
@@ -365,11 +393,9 @@ const handleSell = async () => {
 
         {/* ═══ BUY CARD ═══ */}
         <div className="relative overflow-hidden rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50/60 to-white shadow-sm transition-all duration-300 hover:shadow-md">
-          {/* Top accent */}
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-400 via-blue-400 to-indigo-400" />
 
           <div className="p-6">
-            {/* Card Header */}
             <div className="flex items-center gap-3 mb-4">
               <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white shadow-lg shadow-indigo-200">
                 {Icons.buy}
@@ -380,7 +406,6 @@ const handleSell = async () => {
               </div>
             </div>
 
-{/* Input */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">You Pay (USDT)</label>
               <PremiumInput
@@ -403,7 +428,6 @@ const handleSell = async () => {
               </p>
             </div>
 
-            {/* Quick Amounts */}
             <div className="flex flex-wrap gap-2 mt-3">
               {[10, 20, 50, 100].map(val => (
                 <button
@@ -420,7 +444,6 @@ const handleSell = async () => {
               ))}
             </div>
 
-            {/* Estimation */}
             {buyAmount && parseFloat(buyAmount) > 0 && (
               <div className="mt-4 p-4 rounded-xl bg-white border border-indigo-100 space-y-2">
                 <div className="flex justify-between items-center">
@@ -432,7 +455,6 @@ const handleSell = async () => {
                     <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
                       {Icons.sparkles} Bonus (1%)
                     </span>
-                    {/* ✅ FIX 2: Display bonus with toLocaleString() */}
                     <span className="text-sm font-bold text-emerald-600">+{bonusPlp.toLocaleString()} PLP</span>
                   </div>
                 )}
@@ -444,8 +466,7 @@ const handleSell = async () => {
               </div>
             )}
 
-            {/* Buy Button */}
-<PremiumButton
+            <PremiumButton
               onClick={handleBuy}
               disabled={approving || isBuyPending || isBuying || !buyValidation.isValid}
               variant="primary"
@@ -474,11 +495,9 @@ const handleSell = async () => {
 
         {/* ═══ SELL CARD ═══ */}
         <div className="relative overflow-hidden rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50/60 to-white shadow-sm transition-all duration-300 hover:shadow-md">
-          {/* Top accent */}
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-fuchsia-400 to-purple-400" />
 
           <div className="p-6">
-            {/* Card Header */}
             <div className="flex items-center gap-3 mb-4">
               <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-purple-500 to-fuchsia-500 flex items-center justify-center text-white shadow-lg shadow-purple-200">
                 {Icons.sell}
@@ -489,7 +508,6 @@ const handleSell = async () => {
               </div>
             </div>
 
-{/* Input */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">You Sell (PLP)</label>
               <PremiumInput
@@ -512,7 +530,6 @@ const handleSell = async () => {
               </p>
             </div>
 
-            {/* Balance + Max */}
             <div className="flex items-center justify-between mt-3">
               <div className="flex items-center gap-1.5 text-xs text-slate-500">
                 {Icons.wallet}
@@ -526,7 +543,6 @@ const handleSell = async () => {
               </button>
             </div>
 
-            {/* Estimation */}
             {sellAmount && parseFloat(sellAmount) > 0 && (
               <div className="mt-4 p-4 rounded-xl bg-white border border-purple-100 space-y-2">
                 <div className="flex justify-between items-center">
@@ -549,8 +565,7 @@ const handleSell = async () => {
               </div>
             )}
 
-            {/* Sell Button */}
-<PremiumButton
+            <PremiumButton
               onClick={handleSell}
               disabled={approving || isSellPending || isSelling || !sellValidation.isValid}
               variant="sell"
