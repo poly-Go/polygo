@@ -9,7 +9,24 @@ export const PLP_ADDRESS = "0x141435b6a29243e552dAe1d34A4C1bB785aA9b20";
 // ================= CHAIN & NETWORK =================
 export const CHAIN_ID = 137; // Polygon Mainnet
 export const CHAIN_NAME = "Polygon";
-export const RPC_URL = import.meta.env.VITE_RPC_URL || "https://polygon-rpc.com";
+
+// ✅ Multiple RPC URLs with fallbacks
+export const RPC_URLS = [
+  import.meta.env.VITE_RPC_URL || "https://polygon-rpc.com",
+  "https://polygon-mainnet.g.alchemy.com/v2/demo",
+  "https://rpc-mainnet.maticvigil.com",
+  "https://rpc-mainnet.matic.network",
+  "https://polygon.llamarpc.com",
+  "https://polygon-mainnet.public.blastapi.io",
+];
+
+// ✅ Primary RPC URL (first one)
+export const RPC_URL = RPC_URLS[0];
+
+// ✅ Get random RPC URL for fallback
+export const getRandomRPC = () => {
+  return RPC_URLS[Math.floor(Math.random() * RPC_URLS.length)];
+};
 
 // ================= ABI =================
 export const PLP_ABI = rawAbi as Abi;
