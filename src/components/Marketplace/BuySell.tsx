@@ -4,7 +4,6 @@ import { parseUnits, maxUint256, formatUnits } from 'viem';
 import { CONTRACT_ADDRESS, PLP_ABI, USDT_DECIMALS, PLP_DECIMALS, PLP_ADDRESS, CHAIN_ID } from '../../constants';
 import { ERC20_ABI } from '../../abi/erc20Abi';
 import { useToast } from '../../hooks/useToast';
-import { useRefresh } from '../../hooks/useRefresh';
 import { validateBuy, validateSell, TRADE_LIMITS } from '../../utils/validation';
 
 // ─── PREMIUM ICONS ───

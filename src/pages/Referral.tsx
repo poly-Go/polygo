@@ -2,7 +2,7 @@ import { useAccount, useReadContract, usePublicClient } from 'wagmi';
 import { CONTRACT_ADDRESS, PLP_ABI, USDT_DECIMALS, USDT_ADDRESS, PLP_ADDRESS } from '../constants';
 import { ClaimReferral } from '../components/Referral/ClaimReferral';
 import { TeamTree } from '../components/Referral/TeamTree';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { formatUnits, isAddress, zeroAddress } from 'viem';
 import { ERC20_ABI } from '../abi/erc20Abi';
 import { useToast } from '../hooks/useToast';
@@ -16,7 +16,7 @@ interface ReferralWithStatus {
 }
 
 export default function Referral() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, status } = useAccount();
   const publicClient = usePublicClient();
   const toast = useToast();
   const [copied, setCopied] = useState(false);
@@ -28,21 +28,41 @@ export default function Referral() {
   const [referralList, setReferralList] = useState<ReferralWithStatus[]>([]);
   const [isReferralsLoading, setIsReferralsLoading] = useState(true);
 
+  // ✅ Stable connection for Trust Wallet
+  const stableAddress = useMemo(() => address, [address]);
+  const isStablyConnected = useMemo(() => isConnected && status === 'connected', [isConnected, status]);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   // ====== For connected user ======
   const { data: userBasic, refetch: refetchUserBasic } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: PLP_ABI,
     functionName: 'getUserBasicInfo',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: [stableAddress as `0x${string}`],
+    query: { 
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   const { data: extended, refetch: refetchExtended } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: PLP_ABI,
     functionName: 'getUserExtendedInfo',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: [stableAddress as `0x${string}`],
+    query: { 
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   // ====== Get Total Team Count (All Levels) ======
@@ -50,8 +70,12 @@ export default function Referral() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: PLP_ABI,
     functionName: 'getTotalTeamCount',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: [stableAddress as `0x${string}`],
+    query: { 
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   // ====== Get Direct Referrals List ======
@@ -64,14 +88,16 @@ export default function Referral() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: PLP_ABI,
     functionName: 'getDirectReferralsPaginated',
-    args: [address as `0x${string}`, 0, 100],
+    args: [stableAddress as `0x${string}`, 0, 100],
     query: { 
-      enabled: !!address,
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
     },
   });
 
   // ====== Check if user is active ======
-  const checkUserActive = async (addr: `0x${string}`): Promise<boolean> => {
+  const checkUserActive = useCallback(async (addr: `0x${string}`): Promise<boolean> => {
     try {
       if (!publicClient) return false;
       
@@ -87,12 +113,12 @@ export default function Referral() {
       console.error(`Error checking active status for ${addr}:`, error);
       return false;
     }
-  };
+  }, [publicClient]);
 
   // ====== Process referrals data with active status ======
   useEffect(() => {
     const processReferrals = async () => {
-      if (!referralsData) return;
+      if (!referralsData || !isMounted.current) return;
       
       console.log('📊 Referrals Data:', referralsData);
       
@@ -107,13 +133,15 @@ export default function Referral() {
           }))
         );
         
-        setReferralList(referralsWithStatus);
-        setIsReferralsLoading(false);
+        if (isMounted.current) {
+          setReferralList(referralsWithStatus);
+          setIsReferralsLoading(false);
+        }
       }
     };
 
     processReferrals();
-  }, [referralsData, publicClient]);
+  }, [referralsData, checkUserActive]);
 
   // ====== For searched address ======
   const {
@@ -138,7 +166,11 @@ export default function Referral() {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [lookupAddress as `0x${string}`],
-    query: { enabled: !!lookupAddress && isAddress(lookupAddress) },
+    query: { 
+      enabled: !!lookupAddress && isAddress(lookupAddress),
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   const { data: searchedUsdtBalance } = useReadContract({
@@ -146,7 +178,11 @@ export default function Referral() {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [lookupAddress as `0x${string}`],
-    query: { enabled: !!lookupAddress && isAddress(lookupAddress) },
+    query: { 
+      enabled: !!lookupAddress && isAddress(lookupAddress),
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   // ====== Search handler ======
@@ -180,13 +216,13 @@ export default function Referral() {
   const ext = (extended ?? null) as UserExtendedTuple | null;
   const directCount = basic?.[4] ? Number(basic[4]) : 0;
   const activeDirects = basic?.[5] ? Number(basic[5]) : 0;
-  const isActiveUser = basic?.[6] as boolean || false;
-  const referralBalance = basic?.[1] ? formatUnits(basic[1], USDT_DECIMALS) : '0.00';
-  const dailyEarned = ext?.[2] ? formatUnits(ext[2], USDT_DECIMALS) : '0.00';
+  const isActiveUser = (basic?.[6] as boolean) || false;
+  const referralBalance = basic?.[1] ? formatUnits(basic[1] as bigint, USDT_DECIMALS) : '0.00';
+  const dailyEarned = ext?.[2] ? formatUnits(ext[2] as bigint, USDT_DECIMALS) : '0.00';
   const activeUntil = ext?.[0] ? Number(ext[0]) : 0;
   const activeUntilDate = activeUntil > 0 ? new Date(activeUntil * 1000).toLocaleDateString() : '—';
 
-  const referralLink = address ? `${window.location.origin}/?ref=${address}` : '';
+  const referralLink = stableAddress ? `${window.location.origin}/?ref=${stableAddress}` : '';
 
   const handleCopy = async () => {
     if (!referralLink) return;
@@ -214,7 +250,8 @@ export default function Referral() {
   };
 
   // ====== Refresh all data ======
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
+    if (!isMounted.current) return;
     setIsReferralsLoading(true);
     try {
       await Promise.all([
@@ -224,7 +261,7 @@ export default function Referral() {
         refetchTotalTeam(),
       ]);
       // Re-process referrals with status
-      if (referralsData) {
+      if (referralsData && isMounted.current) {
         const list = (referralsData as any)[0] as `0x${string}`[];
         const referralsWithStatus = await Promise.all(
           list.map(async (addr) => ({
@@ -232,15 +269,21 @@ export default function Referral() {
             isActive: await checkUserActive(addr),
           }))
         );
-        setReferralList(referralsWithStatus);
+        if (isMounted.current) {
+          setReferralList(referralsWithStatus);
+        }
       }
-      toast.refresh();
+      if (isMounted.current) {
+        toast.refresh();
+      }
     } catch (error) {
       console.error('Refresh error:', error);
     } finally {
-      setIsReferralsLoading(false);
+      if (isMounted.current) {
+        setIsReferralsLoading(false);
+      }
     }
-  };
+  }, [refetchUserBasic, refetchExtended, refetchReferrals, refetchTotalTeam, referralsData, checkUserActive, toast]);
 
   // ====== Format address for display ======
   const formatAddress = (addr: string) => {
@@ -248,7 +291,7 @@ export default function Referral() {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
-  if (!isConnected) {
+  if (!isStablyConnected) {
     return (
       <div className="card p-8 text-center">
         <div className="mx-auto w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mb-3">
@@ -600,7 +643,7 @@ export default function Referral() {
       </div>
 
       {/* ✅ TEAM TREE */}
-      <TeamTree address={address} />
+      <TeamTree address={stableAddress} />
 
       {/* Instructions Box */}
       <div className="card p-4 bg-indigo-50/50 border border-indigo-100">

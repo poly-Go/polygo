@@ -5,10 +5,10 @@ import { formatUnits, zeroAddress, isAddress } from 'viem';
 import { CONTRACT_ADDRESS, PLP_ABI, USDT_DECIMALS, USDT_ADDRESS, PLP_ADDRESS, CHAIN_ID, PLP_DECIMALS } from '../constants';
 import { ERC20_ABI } from '../abi/erc20Abi';
 import { useToast } from '../hooks/useToast';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 export default function Home() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, status } = useAccount();
   const chainId = useChainId();
   const { disconnect } = useDisconnect();
   const { open } = useAppKit();
@@ -20,14 +20,30 @@ export default function Home() {
   const refAddress = searchParams.get('ref');
   const isValidRef = refAddress && isAddress(refAddress);
 
+  // ✅ Stable address & connection for Trust Wallet
+  const stableAddress = useMemo(() => address, [address]);
+  const isStablyConnected = useMemo(() => isConnected && status === 'connected', [isConnected, status]);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   // ====== Balances ======
   const { data: plpRaw, refetch: refetchPlpBalance, isLoading: plpLoading } = useReadContract({
     chainId: CHAIN_ID,
     address: PLP_ADDRESS as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: [stableAddress as `0x${string}`],
+    query: { 
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   const { data: usdtRaw, refetch: refetchUsdtBalance, isLoading: usdtLoading } = useReadContract({
@@ -35,8 +51,12 @@ export default function Home() {
     address: USDT_ADDRESS as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: [stableAddress as `0x${string}`],
+    query: { 
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   const plpBal = plpRaw ? Number(formatUnits(plpRaw as bigint, PLP_DECIMALS)).toFixed(2) : '0.00';
@@ -48,8 +68,12 @@ export default function Home() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: PLP_ABI,
     functionName: 'getUserBasicInfo',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: [stableAddress as `0x${string}`],
+    query: { 
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   const { refetch: refetchExtended } = useReadContract({
@@ -57,8 +81,12 @@ export default function Home() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: PLP_ABI,
     functionName: 'getUserExtendedInfo',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: [stableAddress as `0x${string}`],
+    query: { 
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   const { data: pendingSettlement, refetch: refetchPending } = useReadContract({
@@ -66,8 +94,12 @@ export default function Home() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: PLP_ABI,
     functionName: 'pendingSettlement',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: [stableAddress as `0x${string}`],
+    query: { 
+      enabled: !!stableAddress && isStablyConnected,
+      staleTime: 30000,
+      gcTime: 60000,
+    },
   });
 
   // ====== Registration ======
@@ -93,6 +125,7 @@ export default function Home() {
 
   // ====== Handlers ======
   const handleRefresh = useCallback(async () => {
+    if (!isMounted.current) return;
     try {
       await Promise.all([
         refetchUserBasic(),
@@ -101,14 +134,16 @@ export default function Home() {
         refetchPlpBalance(),
         refetchUsdtBalance(),
       ]);
-      toast.refresh();
+      if (isMounted.current) {
+        toast.refresh();
+      }
     } catch (error) {
       console.error('Refresh error:', error);
     }
   }, [refetchUserBasic, refetchExtended, refetchPending, refetchPlpBalance, refetchUsdtBalance, toast]);
 
   const handleRegister = () => {
-    if (!address) return;
+    if (!stableAddress) return;
     setRegistering(true);
     const referrer = isValidRef ? (refAddress as `0x${string}`) : zeroAddress;
     writeRegister({
@@ -122,7 +157,7 @@ export default function Home() {
 
   // ====== Effects ======
   useEffect(() => {
-    if (registerSuccess && registering) {
+    if (registerSuccess && registering && isMounted.current) {
       setRegistering(false);
       toast.registerSuccess();
       handleRefresh();
@@ -130,7 +165,7 @@ export default function Home() {
   }, [registerSuccess, registering, toast, handleRefresh]);
 
   useEffect(() => {
-    if (isRegisterError && registering) {
+    if (isRegisterError && registering && isMounted.current) {
       setRegistering(false);
       toast.registerError();
       console.error('Registration error:', registerError);
@@ -138,7 +173,7 @@ export default function Home() {
   }, [isRegisterError, registering, registerError, toast]);
 
   // ====== Network Check ======
-  if (isConnected && chainId !== CHAIN_ID) {
+  if (isStablyConnected && chainId !== CHAIN_ID) {
     return (
       <div className="card p-8 text-center">
         <div className="text-6xl mb-4">🌐</div>
@@ -159,7 +194,7 @@ export default function Home() {
       {/* ----- Connect / Disconnect Card ----- */}
       <div className="card p-6 text-center relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500"></div>
-        {!isConnected ? (
+        {!isStablyConnected ? (
           <>
             <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-purple-500/30 flex items-center justify-center mb-4">
               <svg className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -206,7 +241,7 @@ export default function Home() {
         )}
       </div>
 
-      {isConnected && (
+      {isStablyConnected && (
         <>
           {/* ----- Register Prompt ----- */}
           {!isRegistered && !basicLoading && (

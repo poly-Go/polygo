@@ -1,9 +1,35 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useAccount } from 'wagmi';
 import BuySell from '../components/Marketplace/BuySell';
 import Orders from '../components/Marketplace/Orders';
 
 export default function Marketplace() {
+  const { isConnected, status } = useAccount();
   const [tab, setTab] = useState<'buySell' | 'orders'>('buySell');
+
+  // ✅ Stable connection check for Trust Wallet
+  const isStablyConnected = useMemo(() => isConnected && status === 'connected', [isConnected, status]);
+
+  // If not connected, show connect prompt
+  if (!isStablyConnected) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Marketplace</h1>
+          <p className="text-sm text-slate-500 mt-1">Buy PLP with USDT or manage your sell orders.</p>
+        </div>
+        <div className="card p-8 text-center">
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mb-3">
+            <svg className="h-7 w-7 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-slate-600">Connect your wallet</p>
+          <p className="text-xs text-slate-400 mt-1">to start trading PLP tokens.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -47,4 +73,3 @@ export default function Marketplace() {
     </div>
   );
 }
-
