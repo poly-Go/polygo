@@ -5,7 +5,7 @@ import { formatUnits, zeroAddress, isAddress } from 'viem';
 import { CONTRACT_ADDRESS, PLP_ABI, USDT_DECIMALS, USDT_ADDRESS, PLP_ADDRESS, CHAIN_ID, PLP_DECIMALS } from '../constants';
 import { ERC20_ABI } from '../abi/erc20Abi';
 import { useToast } from '../hooks/useToast';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function Home() {
   const { address, isConnected } = useAccount();
@@ -19,10 +19,6 @@ export default function Home() {
   const [searchParams] = useSearchParams();
   const refAddress = searchParams.get('ref');
   const isValidRef = refAddress && isAddress(refAddress);
-  
-  // ✅ Prevent multiple refresh calls
-  const refreshInProgress = useRef(false);
-  const initialLoadDone = useRef(false);
 
   // ====== Balances ======
   const { data: plpRaw, refetch: refetchPlpBalance, isLoading: plpLoading } = useReadContract({
@@ -97,10 +93,6 @@ export default function Home() {
 
   // ====== Handlers ======
   const handleRefresh = useCallback(async () => {
-    // ✅ Prevent concurrent refresh calls
-    if (refreshInProgress.current) return;
-    refreshInProgress.current = true;
-    
     try {
       await Promise.all([
         refetchUserBasic(),
@@ -112,8 +104,6 @@ export default function Home() {
       toast.refresh();
     } catch (error) {
       console.error('Refresh error:', error);
-    } finally {
-      refreshInProgress.current = false;
     }
   }, [refetchUserBasic, refetchExtended, refetchPending, refetchPlpBalance, refetchUsdtBalance, toast]);
 
@@ -146,21 +136,6 @@ export default function Home() {
       console.error('Registration error:', registerError);
     }
   }, [isRegisterError, registering, registerError, toast]);
-
-  // ✅ FIXED: Only run once on mount and when address changes
-  useEffect(() => {
-    if (address && !initialLoadDone.current) {
-      initialLoadDone.current = true;
-      handleRefresh();
-    }
-  }, [address]); // Only address dependency
-
-  // ✅ FIXED: Reset initialLoadDone when address disconnects
-  useEffect(() => {
-    if (!address) {
-      initialLoadDone.current = false;
-    }
-  }, [address]);
 
   // ====== Network Check ======
   if (isConnected && chainId !== CHAIN_ID) {
@@ -214,8 +189,8 @@ export default function Home() {
               You're ready to trade on PolyGo. Keep track of your balances below.
             </p>
             <div className="flex justify-center gap-3 mt-4 flex-wrap">
-              <button onClick={handleRefresh} disabled={refreshInProgress.current} className="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-medium transition disabled:opacity-50">
-                <svg className={`h-4 w-4 ${refreshInProgress.current ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <button onClick={handleRefresh} className="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-medium transition">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
                 Refresh
