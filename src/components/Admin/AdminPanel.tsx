@@ -68,11 +68,6 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
     </svg>
   ),
-  emergency: (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-    </svg>
-  ),
   transfer: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -258,25 +253,19 @@ export default function AdminPanel() {
     functionName: 'claimFeePercent', query: { enabled: isConnected },
   });
 
-// ✅ CORRECT: MIN_SELL is a constant (not a function)
+  // ✅ MIN_SELL is a constant - only refetch needed
   const { refetch: refetchMinSell } = useReadContract({
     chainId: CHAIN_ID, address: CONTRACT_ADDRESS as `0x${string}`, abi: PLP_ABI,
     functionName: 'MIN_SELL', query: { enabled: isConnected },
   });
 
-  // ✅ CORRECT: MAX_CLAIM_AMOUNT is a constant
-  const { data: maxClaimAmount, refetch: refetchMaxClaim } = useReadContract({
-    chainId: CHAIN_ID, address: CONTRACT_ADDRESS as `0x${string}`, abi: PLP_ABI,
-    functionName: 'MAX_CLAIM_AMOUNT', query: { enabled: isConnected },
-  });
-
-// ✅ CORRECT: sellWaitTime is a state variable
+  // ✅ sellWaitTime is a state variable
   const { refetch: refetchSellWaitTime } = useReadContract({
     chainId: CHAIN_ID, address: CONTRACT_ADDRESS as `0x${string}`, abi: PLP_ABI,
     functionName: 'sellWaitTime', query: { enabled: isConnected },
   });
 
-  // ✅ ADD: Read minBuyAmount and maxBuyAmount
+  // ✅ Read minBuyAmount and maxBuyAmount
   const { data: minBuyAmount, refetch: refetchMinBuy } = useReadContract({
     chainId: CHAIN_ID, address: CONTRACT_ADDRESS as `0x${string}`, abi: PLP_ABI,
     functionName: 'minBuyAmount', query: { enabled: isConnected },
@@ -287,7 +276,7 @@ export default function AdminPanel() {
     functionName: 'maxBuyAmount', query: { enabled: isConnected },
   });
 
-  // ✅ ADD: Read minSellAmount and maxSellAmount
+  // ✅ Read minSellAmount and maxSellAmount
   const { data: minSellAmount, refetch: refetchMinSellAmount } = useReadContract({
     chainId: CHAIN_ID, address: CONTRACT_ADDRESS as `0x${string}`, abi: PLP_ABI,
     functionName: 'minSellAmount', query: { enabled: isConnected },
@@ -298,7 +287,7 @@ export default function AdminPanel() {
     functionName: 'maxSellAmount', query: { enabled: isConnected },
   });
 
-  // ✅ ADD: Read paused state
+  // ✅ Read paused state
   const { data: paused, refetch: refetchPaused } = useReadContract({
     chainId: CHAIN_ID, address: CONTRACT_ADDRESS as `0x${string}`, abi: PLP_ABI,
     functionName: 'paused', query: { enabled: isConnected },
@@ -333,12 +322,7 @@ export default function AdminPanel() {
   const [maxSellInput, setMaxSellInput] = useState('');
   const [minBuyInput, setMinBuyInput] = useState('');
   const [maxBuyInput, setMaxBuyInput] = useState('');
-  const [maxClaimInput, setMaxClaimInput] = useState('');
   const [settleTimeInput, setSettleTimeInput] = useState('');
-  const [emergencyMintAddress, setEmergencyMintAddress] = useState('');
-  const [emergencyMintAmount, setEmergencyMintAmount] = useState('');
-  const [emergencyWithdrawAddress, setEmergencyWithdrawAddress] = useState('');
-  const [emergencyWithdrawAmount, setEmergencyWithdrawAmount] = useState('');
   const [newOwnerAddress, setNewOwnerAddress] = useState('');
 
   // ─── HANDLERS ───
@@ -369,7 +353,7 @@ export default function AdminPanel() {
       chainId: CHAIN_ID,
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: PLP_ABI,
-      functionName: 'withdrawAdminPartial',
+      functionName: 'withdrawFee',
       args: [amount],
     });
   };
@@ -410,16 +394,16 @@ export default function AdminPanel() {
     });
   };
 
-  // 5. Update Max Claim Amount
-  const handleUpdateMaxClaim = () => {
-    if (!maxClaimInput) return;
-    const amount = parseUnits(maxClaimInput, USDT_DECIMALS);
+  // 5. Update Min Sell (only minSellAmount)
+  const handleUpdateMinSell = () => {
+    if (!minSellInput) return;
+    const min = parseUnits(minSellInput, 18);
     writeContract({
       chainId: CHAIN_ID,
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: PLP_ABI,
-      functionName: 'updateMaxClaimAmount', // ✅ This is a function
-      args: [amount],
+      functionName: 'updateMinSell',
+      args: [min],
     });
   };
 
@@ -440,33 +424,40 @@ export default function AdminPanel() {
     });
   };
 
-  // 7. Emergency Mint PLP
-  const handleEmergencyMint = () => {
-    if (!emergencyMintAddress || !emergencyMintAmount) return;
-    const amount = parseUnits(emergencyMintAmount, 18);
+  // 7. Pause
+  const handlePause = () => {
     writeContract({
       chainId: CHAIN_ID,
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: PLP_ABI,
-      functionName: 'emergencyMintPGN',
-      args: [emergencyMintAddress as `0x${string}`, amount],
+      functionName: 'pause',
+      args: [],
     });
   };
 
-  // 8. Emergency Withdraw (any token)
-  const handleEmergencyWithdraw = () => {
-    if (!emergencyWithdrawAddress || !emergencyWithdrawAmount) return;
-    const amount = parseUnits(emergencyWithdrawAmount, 18);
+  // 8. Unpause
+  const handleUnpause = () => {
     writeContract({
       chainId: CHAIN_ID,
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: PLP_ABI,
-      functionName: 'emergencyWithdraw',
-      args: [emergencyWithdrawAddress as `0x${string}`, amount],
+      functionName: 'unpause',
+      args: [],
     });
   };
 
-  // 9. Transfer Ownership
+  // 9. Refresh Active Users Count
+  const handleRefreshActiveUsers = () => {
+    writeContract({
+      chainId: CHAIN_ID,
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: PLP_ABI,
+      functionName: 'refreshActiveUsersCount',
+      args: [],
+    });
+  };
+
+  // 10. Transfer Ownership
   const handleTransferOwnership = () => {
     if (!newOwnerAddress) return;
     writeContract({
@@ -478,37 +469,22 @@ export default function AdminPanel() {
     });
   };
 
-  // 10. Pause
-  const handlePause = () => {
-    writeContract({
-      chainId: CHAIN_ID,
-      address: CONTRACT_ADDRESS as `0x${string}`,
-      abi: PLP_ABI,
-      functionName: 'pause',
-      args: [],
-    });
-  };
-
-  // 11. Unpause
-  const handleUnpause = () => {
-    writeContract({
-      chainId: CHAIN_ID,
-      address: CONTRACT_ADDRESS as `0x${string}`,
-      abi: PLP_ABI,
-      functionName: 'unpause',
-      args: [],
-    });
-  };
-
   // ─── REFRESH ───
   const handleRefresh = async () => {
     setLoading(true);
     try {
       await Promise.all([
-        refetchPoolInfo(), refetchAdminFee(), refetchReferralFee(),
-        refetchClaimFee(), refetchMinSell(), refetchMaxClaim(),
-        refetchSellWaitTime(), refetchOwner(), refetchMinBuy(),
-        refetchMaxBuy(), refetchMinSellAmount(), refetchMaxSellAmount(),
+        refetchPoolInfo(), 
+        refetchAdminFee(), 
+        refetchReferralFee(),
+        refetchClaimFee(), 
+        refetchMinSell(), 
+        refetchSellWaitTime(),
+        refetchOwner(), 
+        refetchMinBuy(),
+        refetchMaxBuy(), 
+        refetchMinSellAmount(), 
+        refetchMaxSellAmount(),
         refetchPaused(),
       ]);
       toast.refresh();
@@ -528,7 +504,7 @@ export default function AdminPanel() {
   }, [isSuccess]);
 
   // ─── FORMAT HELPERS ───
-const formatPLP = (val: unknown) => {
+  const formatPLP = (val: unknown) => {
     if (!val) return '...';
     return Number(formatUnits(val as bigint, 18)).toLocaleString();
   };
@@ -804,24 +780,22 @@ const formatPLP = (val: unknown) => {
         </div>
       </SectionCard>
 
-      {/* ─── MAX CLAIM ─── */}
-      <SectionCard title="Update Max Claim Amount" icon={Icons.settings}>
+      {/* ─── MIN SELL ─── */}
+      <SectionCard title="Update Min Sell Amount" icon={Icons.settings}>
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Max Claim</label>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Min Sell (PLP)</label>
             <PremiumInput
-              placeholder="Enter USDT amount"
-              value={maxClaimInput}
-              onChange={(e: any) => setMaxClaimInput(e.target.value)}
-              suffix="USDT"
+              placeholder="Enter min PLP"
+              value={minSellInput}
+              onChange={(e: any) => setMinSellInput(e.target.value)}
+              suffix="PLP"
             />
-            <p className="text-[10px] text-slate-400 font-medium">
-              Current: {formatUSDT(maxClaimAmount)} USDT
-            </p>
+            <p className="text-[10px] text-slate-400 font-medium">Current: {formatPLP(minSellAmount)} PLP</p>
           </div>
           <div className="flex items-end">
-            <PremiumButton onClick={handleUpdateMaxClaim} disabled={isPending}>
-              {isPending ? 'Updating...' : 'Update Max Claim'}
+            <PremiumButton onClick={handleUpdateMinSell} disabled={isPending}>
+              {isPending ? 'Updating...' : 'Update Min Sell'}
             </PremiumButton>
           </div>
         </div>
@@ -876,58 +850,16 @@ const formatPLP = (val: unknown) => {
         </div>
       </SectionCard>
 
-      {/* ─── EMERGENCY MINT ─── */}
-      <SectionCard title="Emergency Mint PLP" icon={Icons.emergency} danger>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Recipient Address</label>
-            <PremiumInput
-              placeholder="0x..."
-              value={emergencyMintAddress}
-              onChange={(e: any) => setEmergencyMintAddress(e.target.value)}
-            />
+      {/* ─── REFRESH ACTIVE USERS ─── */}
+      <SectionCard title="Refresh Active Users" icon={Icons.users}>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1 p-4 rounded-xl bg-indigo-50 border border-indigo-100">
+            <p className="text-sm font-bold text-indigo-700 mb-1">Update Active Users Cache</p>
+            <p className="text-xs text-slate-500 mb-3">Refresh the cached active users count.</p>
+            <PremiumButton onClick={handleRefreshActiveUsers} disabled={isPending} variant="primary">
+              {isPending ? 'Refreshing...' : 'Refresh Active Users'}
+            </PremiumButton>
           </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Amount (PLP)</label>
-            <PremiumInput
-              placeholder="Enter PLP amount"
-              value={emergencyMintAmount}
-              onChange={(e: any) => setEmergencyMintAmount(e.target.value)}
-              suffix="PLP"
-            />
-          </div>
-        </div>
-        <div className="mt-5">
-          <PremiumButton onClick={handleEmergencyMint} disabled={isPending} variant="danger">
-            {isPending ? 'Minting...' : 'Emergency Mint'}
-          </PremiumButton>
-        </div>
-      </SectionCard>
-
-      {/* ─── EMERGENCY WITHDRAW ─── */}
-      <SectionCard title="Emergency Withdraw (Any Token)" icon={Icons.emergency} danger>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Token Address</label>
-            <PremiumInput
-              placeholder="0x..."
-              value={emergencyWithdrawAddress}
-              onChange={(e: any) => setEmergencyWithdrawAddress(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</label>
-            <PremiumInput
-              placeholder="Enter amount"
-              value={emergencyWithdrawAmount}
-              onChange={(e: any) => setEmergencyWithdrawAmount(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="mt-5">
-          <PremiumButton onClick={handleEmergencyWithdraw} disabled={isPending} variant="danger">
-            {isPending ? 'Withdrawing...' : 'Emergency Withdraw'}
-          </PremiumButton>
         </div>
       </SectionCard>
 
