@@ -2,7 +2,7 @@ import { useAccount, useReadContract, usePublicClient } from 'wagmi';
 import { CONTRACT_ADDRESS, PLP_ABI, USDT_DECIMALS, USDT_ADDRESS, PLP_ADDRESS } from '../constants';
 import { ClaimReferral } from '../components/Referral/ClaimReferral';
 import { TeamTree } from '../components/Referral/TeamTree';
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { formatUnits, isAddress, zeroAddress } from 'viem';
 import { ERC20_ABI } from '../abi/erc20Abi';
 import { useToast } from '../hooks/useToast';
@@ -15,8 +15,11 @@ interface ReferralWithStatus {
   isActive: boolean;
 }
 
+// ✅ Lazy load TeamTree (only when needed)
+const TeamTreeLazy = lazy(() => import('../components/Referral/TeamTree'));
+
 export default function Referral() {
-  const { address, isConnected, status } = useAccount();
+  const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const toast = useToast();
   const [copied, setCopied] = useState(false);
@@ -27,18 +30,24 @@ export default function Referral() {
   // ✅ State for referral list with status
   const [referralList, setReferralList] = useState<ReferralWithStatus[]>([]);
   const [isReferralsLoading, setIsReferralsLoading] = useState(true);
-
-  // ✅ Stable connection for Trust Wallet
-  const stableAddress = useMemo(() => address, [address]);
-  const isStablyConnected = useMemo(() => isConnected && status === 'connected', [isConnected, status]);
+  const [isTeamTreeVisible, setIsTeamTreeVisible] = useState(false);
+  
   const isMounted = useRef(true);
+  const refreshTimeout = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
+      if (refreshTimeout.current) {
+        clearTimeout(refreshTimeout.current);
+      }
     };
   }, []);
+
+  // ✅ FIX 2: No useMemo needed
+  const stableAddress = address;
+  const isStablyConnected = isConnected && !!address;
 
   // ====== For connected user ======
   const { data: userBasic, refetch: refetchUserBasic } = useReadContract({
@@ -47,9 +56,8 @@ export default function Referral() {
     functionName: 'getUserBasicInfo',
     args: [stableAddress as `0x${string}`],
     query: { 
-      enabled: !!stableAddress && isStablyConnected,
-      staleTime: 30000,
-      gcTime: 60000,
+      enabled: isStablyConnected,
+      // ✅ FIX 3: Remove staleTime - QueryClient default handles it
     },
   });
 
@@ -58,11 +66,7 @@ export default function Referral() {
     abi: PLP_ABI,
     functionName: 'getUserExtendedInfo',
     args: [stableAddress as `0x${string}`],
-    query: { 
-      enabled: !!stableAddress && isStablyConnected,
-      staleTime: 30000,
-      gcTime: 60000,
-    },
+    query: { enabled: isStablyConnected },
   });
 
   // ====== Get Total Team Count (All Levels) ======
@@ -71,11 +75,7 @@ export default function Referral() {
     abi: PLP_ABI,
     functionName: 'getTotalTeamCount',
     args: [stableAddress as `0x${string}`],
-    query: { 
-      enabled: !!stableAddress && isStablyConnected,
-      staleTime: 30000,
-      gcTime: 60000,
-    },
+    query: { enabled: isStablyConnected },
   });
 
   // ====== Get Direct Referrals List ======
@@ -90,32 +90,40 @@ export default function Referral() {
     functionName: 'getDirectReferralsPaginated',
     args: [stableAddress as `0x${string}`, 0, 100],
     query: { 
-      enabled: !!stableAddress && isStablyConnected,
-      staleTime: 30000,
-      gcTime: 60000,
+      enabled: isStablyConnected,
     },
   });
 
-  // ====== Check if user is active ======
-  const checkUserActive = useCallback(async (addr: `0x${string}`): Promise<boolean> => {
+  // ====== FIX 1: Batch check active status ======
+  const checkUserActiveBatch = useCallback(async (addresses: `0x${string}`[]): Promise<Record<string, boolean>> => {
+    if (!publicClient || addresses.length === 0) return {};
+    
     try {
-      if (!publicClient) return false;
-      
-      const result = await publicClient.readContract({
+      // ✅ Use multicall to batch all isActive checks
+      const contracts = addresses.map((addr) => ({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: PLP_ABI,
         functionName: 'isActive',
         args: [addr],
-      }) as boolean;
+      }));
       
-      return result || false;
+      const results = await publicClient.multicall({
+        contracts,
+      }) as any[];
+      
+      const statusMap: Record<string, boolean> = {};
+      for (let i = 0; i < addresses.length; i++) {
+        const result = results[i];
+        statusMap[addresses[i].toLowerCase()] = result.status === 'success' ? (result.result as boolean) : false;
+      }
+      return statusMap;
     } catch (error) {
-      console.error(`Error checking active status for ${addr}:`, error);
-      return false;
+      console.error('Error checking active statuses:', error);
+      return {};
     }
   }, [publicClient]);
 
-  // ====== Process referrals data with active status ======
+  // ====== Process referrals data with batched status ======
   useEffect(() => {
     const processReferrals = async () => {
       if (!referralsData || !isMounted.current) return;
@@ -125,13 +133,13 @@ export default function Referral() {
       if (Array.isArray(referralsData) && referralsData.length >= 2) {
         const list = referralsData[0] as `0x${string}`[];
         
-        // Check active status for each referral
-        const referralsWithStatus = await Promise.all(
-          list.map(async (addr) => ({
-            address: addr,
-            isActive: await checkUserActive(addr),
-          }))
-        );
+        // ✅ FIX 1: Batch check active status for all referrals at once
+        const statusMap = await checkUserActiveBatch(list);
+        
+        const referralsWithStatus = list.map((addr) => ({
+          address: addr,
+          isActive: statusMap[addr.toLowerCase()] || false,
+        }));
         
         if (isMounted.current) {
           setReferralList(referralsWithStatus);
@@ -141,14 +149,13 @@ export default function Referral() {
     };
 
     processReferrals();
-  }, [referralsData, checkUserActive]);
+  }, [referralsData, checkUserActiveBatch]);
 
   // ====== For searched address ======
   const {
     data: searchedBasic, 
     isLoading: searchedBasicLoading,
     error: searchedBasicError,
-    refetch: refetchSearchedBasic,
   } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: PLP_ABI,
@@ -157,6 +164,7 @@ export default function Referral() {
     query: { 
       enabled: !!lookupAddress && isAddress(lookupAddress),
       retry: false,
+      // ✅ FIX 5: No need to refetch manually
     },
   });
 
@@ -168,8 +176,6 @@ export default function Referral() {
     args: [lookupAddress as `0x${string}`],
     query: { 
       enabled: !!lookupAddress && isAddress(lookupAddress),
-      staleTime: 30000,
-      gcTime: 60000,
     },
   });
 
@@ -180,8 +186,6 @@ export default function Referral() {
     args: [lookupAddress as `0x${string}`],
     query: { 
       enabled: !!lookupAddress && isAddress(lookupAddress),
-      staleTime: 30000,
-      gcTime: 60000,
     },
   });
 
@@ -189,7 +193,7 @@ export default function Referral() {
   const handleSearch = () => {
     if (isAddress(searchAddress)) {
       setLookupAddress(searchAddress as `0x${string}`);
-      refetchSearchedBasic();
+      // ✅ FIX 5: No manual refetch needed
     } else {
       toast.error('Invalid Address', 'Please enter a valid Ethereum address.');
     }
@@ -249,9 +253,15 @@ export default function Referral() {
     }
   };
 
-  // ====== Refresh all data ======
+  // ====== FIX 4: Debounced refresh with toast throttling ======
   const handleRefresh = useCallback(async () => {
     if (!isMounted.current) return;
+    
+    // ✅ Prevent multiple toasts on rapid clicks
+    if (refreshTimeout.current) {
+      clearTimeout(refreshTimeout.current);
+    }
+    
     setIsReferralsLoading(true);
     try {
       await Promise.all([
@@ -260,22 +270,27 @@ export default function Referral() {
         refetchReferrals(),
         refetchTotalTeam(),
       ]);
-      // Re-process referrals with status
+      
+      // ✅ Re-process referrals with status
       if (referralsData && isMounted.current) {
         const list = (referralsData as any)[0] as `0x${string}`[];
-        const referralsWithStatus = await Promise.all(
-          list.map(async (addr) => ({
-            address: addr,
-            isActive: await checkUserActive(addr),
-          }))
-        );
+        const statusMap = await checkUserActiveBatch(list);
+        const referralsWithStatus = list.map((addr) => ({
+          address: addr,
+          isActive: statusMap[addr.toLowerCase()] || false,
+        }));
         if (isMounted.current) {
           setReferralList(referralsWithStatus);
         }
       }
-      if (isMounted.current) {
-        toast.refresh();
-      }
+      
+      // ✅ Show toast only once with debounce
+      refreshTimeout.current = setTimeout(() => {
+        if (isMounted.current) {
+          toast.refresh();
+        }
+      }, 300);
+      
     } catch (error) {
       console.error('Refresh error:', error);
     } finally {
@@ -283,7 +298,7 @@ export default function Referral() {
         setIsReferralsLoading(false);
       }
     }
-  }, [refetchUserBasic, refetchExtended, refetchReferrals, refetchTotalTeam, referralsData, checkUserActive, toast]);
+  }, [refetchUserBasic, refetchExtended, refetchReferrals, refetchTotalTeam, referralsData, checkUserActiveBatch, toast]);
 
   // ====== Format address for display ======
   const formatAddress = (addr: string) => {
@@ -291,6 +306,7 @@ export default function Referral() {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
+  // ✅ FIX 1b: Loading state for wallet connection
   if (!isStablyConnected) {
     return (
       <div className="card p-8 text-center">
@@ -642,8 +658,46 @@ export default function Referral() {
         )}
       </div>
 
-      {/* ✅ TEAM TREE */}
-      <TeamTree address={stableAddress} />
+      {/* ✅ TEAM TREE - Lazy Load */}
+      <div className="space-y-2">
+        <button
+          onClick={() => setIsTeamTreeVisible(!isTeamTreeVisible)}
+          className="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-indigo-50/80 to-purple-50/80 border border-indigo-200 hover:shadow-md transition"
+        >
+          <div className="flex items-center gap-3">
+            <span className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white text-lg shadow-lg shadow-indigo-200">
+              🌳
+            </span>
+            <div>
+              <h3 className="text-base font-bold text-slate-800">Team Tree</h3>
+              <p className="text-xs text-slate-500">View your team structure (Level 1-4)</p>
+            </div>
+          </div>
+          <svg
+            className={`h-5 w-5 text-slate-400 transition-transform duration-300 ${isTeamTreeVisible ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {isTeamTreeVisible && (
+          <Suspense fallback={
+            <div className="card p-8 text-center">
+              <div className="animate-pulse flex flex-col items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-indigo-200"></div>
+                <div className="h-4 w-32 bg-indigo-200 rounded"></div>
+              </div>
+              <p className="text-slate-500 text-sm mt-2">Loading team tree...</p>
+            </div>
+          }>
+            <TeamTreeLazy address={stableAddress} />
+          </Suspense>
+        )}
+      </div>
 
       {/* Instructions Box */}
       <div className="card p-4 bg-indigo-50/50 border border-indigo-100">
